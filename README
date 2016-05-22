@@ -1,0 +1,35 @@
+                                Git-DS
+
+This project provides a Ruby module which provides access to a Git repository
+as a hierarchical data store. The module wraps the Grit (Git-in-Ruby) gem.
+
+Examples of how to use the module are in the doc/examples directory. To
+build the example repositories, run the following from the top-level
+directory:
+
+	# create kv_test.db
+	doc/examples/key_value/test.rb
+
+	# create ug_test.db
+	doc/examples/user_group/test.rb
+
+	# create ts_test.db
+	doc/examples/test_suite/test.rb
+
+These repositories can be explored using a tool such as QGit.
+
+To run unit tests:
+
+	rake test
+
+To build a gem:
+	rake gem
+
+To build documentation:
+	rake rdoc
+
+What happened to the documentation?
+
+The RDoc guys decided, in their alien wisdom, to stop supporting the
+"=begin rdoc" tag that is recommended by their very documentation. The
+automatically-generated docs are, therefore, quite empty.

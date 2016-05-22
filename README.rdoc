@@ -1,0 +1,795 @@
+A gem providing a Git-backed datastore. This acts as a version-controlled
+hierarchical data store.
+
+Requires Grit[http://grit.rubyforge.org].
+
+==Usage:
+
+	require 'git-ds'
+
+	# connect to data model
+	db = GitDS::Database.connect('/path/to/repo.db')
+	model = GitDS::Model.new(db)
+
+	# store item in database
+	model.add_item('path/to/item', 'data in item')
+
+	# test for existence of item
+	model.include? 'path/to/item'
+
+	# list items in database
+	puts model.list_children
+	puts model.list_children('path/to')
+
+	# update item in database
+	model.add_item('path/to/item', 'revised data in item')
+
+	# retrieve item from database
+	data = model.get_item('path/to/item')
+
+	# delete item from database
+	model.delete_item('path/to/item')
+
+	# close database connection
+	db.close
+
+See {Examples}[link:doc/Examples_rdoc.html].
+
+==Data Model
+
+The recommended way to use GitDS is with a data model.
+
+A subclass of GitDS::Model is used to define the data model. Note that the
+name of a Model subclass determines the top-level directory in the Git
+repository that will contain the data for the Model.
+
+The structure for a GitDS::Model will have a subdirectory for each class which
+contains instances of that class. The following repository structure shows
+the model 'my_model' which contains two data types ('my_class' and 
+'another class', which have 3 instances and 2 instances respectively:
+
+	my_model/my_class/1/...
+	my_model/my_class/2/...
+	my_model/my_class/3/...
+	my_model/another class/1/...
+	my_model/another class/2/...
+
+In a GitDS::Model, leaf nodes (files) contain actual data, while classes, 
+instances, and members appear as directories. A model 'Stuff' with an 
+instance of the class MyClass with ident 'foo' and the members (x=100, 
+comment='factor of 10') would appear in the repository as follows:
+
+	Stuff/MyClass/foo/x		: file containing '100'
+	Stuff/MyClass/foo/comment	: file containing 'factor of 10'
+
+See the examples KeyValueModel, TestSuiteModel, and UserGroupModel for
+demonstrations of using data models.
+
+===Model Items
+
+Items stored in the model are subclasses of GitDS::ModelItem or 
+GitDS::FsModelItem. Note that all GitDS::ModelIten objects must invoke the 
+GitDS::ModelItemClass#name method in their class definition:
+	
+	class DbThing < GitDS::ModelItem
+	  # name of class (and of subdirectory where class instances appear)
+	  name 'thing'
+	  # ...
+	end
+
+To wrap an existing class hierarchy in ModelItems (e.g. in an ORM), use the
+ModelItem modules instead of subclassing:
+
+	# DB-only object
+	class DbThing < Thing
+	  extend GitDS::ModelItemClass
+	  include GitDS::ModelItemObject
+
+	  name 'thing'
+	end
+
+	# FS and DB object
+	class DbThing < Thing
+	  extend GitDS::FsModelItemClass
+	  include GitDS::FsModelItemObject
+
+	  name 'thing'
+	end
+
+===ModelItem vs FsModelItem
+
+When using DB-only GitDS::ModelItems, the working directory will ALWAYS 
+be missing files. This means that commits and such should only be done from 
+with the GitDS repo or database entries WILL BE DELETED when command-line 
+tools are run. To avoid this problem, use only GitDS::FsModelItem classes.
+
+===Root Items
+
+All items in a model are children of the model's root item.
+
+The root GitDS::ModelItem for a GitDS::Model can be accessed through 
+GitDS::Model#root.
+
+===Properties
+
+GitDS::ModelItem objects can define properties (PropertyDefinition objects) 
+using the GitDS::ModelItemClass#property method:
+
+	class DbThing < ModelItem
+	  name 'thing'
+
+	  property :foo
+
+	  # 'bar' property defaults to false
+	  property :bar, false
+
+	  # 'baz' property is validated to ensure it is an integer
+	  property(:baz, 0) { |val| val.to_s.to_i == val }
+	end
+
+Properties can be accessed using GitDS::ModelItemObject#property and
+GitDS::ModelItemObject#set_property :
+
+	class DbThing < ModelItem
+	  name 'thing'
+
+	  property :foo
+
+	  def foo
+	    property(:foo)
+	  end
+
+	  def foo=(val)
+	    set_property(:foo, val)
+	  end
+	end
+
+Properties are stored as Strings; any object supporting to_s can be stored
+in a property. When reading a property, the String value is returned unless
+one of the special accessor methods is used:
+
+	class DbThing < ModelItem
+	  name 'thing'
+
+	  property :foo
+
+	  # Access foo as String
+	  def foo
+	    property(:foo)
+	  end
+
+	  # Access foo as an Integer 
+	  def foo_to_i
+	    integer_property(:foo)
+	  end
+
+	  # Access foo as a Float
+	  def foo_to_f
+	    float_property(:foo)
+	  end
+
+	  # Access foo as a Bool
+	  def foo_to_b
+	    bool_property(:foo)
+	  end
+
+	  # Access foo as a Time
+	  def foo_to_ts
+	    ts_property(:foo)
+	  end
+
+	  # Access foo as an Array
+	  def foo_to_a
+	    array_property(:foo)
+	  end
+
+	end
+
+===ModelItem Initialization
+
+GitDS::ModelItem objects are created in two stages.
+
+First, they are created in the repository using GitDS::ModelItemClass#create. 
+This takes a parent object and a Hash of arguments, and invokes 
+GitDS::ModelItemClass#fill to generate the ModelItem subtree in the repository. 
+The default implementation of GitDS::ModelItemClass#fill creates leaf nodes for 
+all properties supplied in the args Hash, but it can be subclassed to create 
+additional children:
+
+	def self.fill(model, item_path, args)
+	  super
+	  # fill the :created property instead of using an args field
+	  properties[:created].set(model, item_path, Time.now.to_s)
+	end
+
+	def initialize(model, path)
+	  super
+	  # initialize other class members
+	  @local_stuff = []
+	end
+
+===Item Lists
+
+A GitDS::ModelItem may have one or more instances of another GitDS::ModelItem 
+as its children. For example, a CompanyModelItem will have any number of
+EmployeeModelItem children. In this case, the child GitDS::ModelItems are 
+defined in a GitDS::ModelItem class subtree:
+
+	company/ACME Inc/employee/First Guy
+	company/ACME Inc/employee/Second Guy
+	company/ACME Inc/employee/Third Guy
+	company/Fools-R-Us/employee/A Fool
+	company/Fools-R-Us/employee/Mo Foolz
+	company/Fools-R-Us/employee/Max Fool
+
+In the above repository, the instances of the CompanyModelItem class 
+('ACME Inc', 'Fools-R-Us') have an EmployeeModelItem class directory in
+which their EmployeeModelItem children (['First Guy', 'Second Guy', 'Third Guy']
+or ['A Fool', 'Mo Foolz', 'Max Fool']) are stored. These subdirectories of
+GitDS::ModelItem class instances are examples of a GitDS::ModelItemList.
+
+A GitDS::ModelItemList is instantiated in the constructor of a GitDS::ModelItem:
+
+	def initialize(mode, path)
+	  super
+	  @emp = GitDS::ModelItemList.new(EmployeeModelItem, model, path)
+	end
+
+The items in the list can then be wrapped with accessors:
+
+	def employees
+	  ensure_valid
+	  @emp.keys
+        end
+
+	def employee(ident)
+	  ensure_valid
+	  @emp[ident]
+ 	end
+
+	def add_employee(e)
+	  ensure_valid
+	  @emp.add(self, { :ident => e.ident, :name => e.name })
+	end
+
+	def del_employee(ident)
+	  ensure_valid
+	  @emp.delete(ident)
+	end
+
+This hides the GitDS::ModelItemList behind an interface so that the ModelItems
+behave as normal object children:
+
+	# use existing customer at c_path
+	c = CustomerModelItem.new(model, c_path)
+
+	# use existing employee at e_path
+	e = EmployeeModelItem.new(model, e_path)
+
+	c.add_employee(e)
+	c.employees.each { |e| puts e.inspect }
+	puts c.employee(e.ident).inspect
+
+	e.del_employee(e.ident)
+
+Note: GitDS::ModelItemList uses the name of the class as the name of the 
+subdirectory in which items are stored in the repo. To change this behavior 
+(for example, if a GitDS::ModelItem has two different lists of the same class 
+of GitDS::ModelItem objects), subclass the GitDS::ModelItem in the list and
+give it a different name.
+
+===Proxy Items
+
+A ModelItem may have a member which refers to another ModelItem which it does
+not necessarily 'own'. For example, EmployeeModelItem might have the member
+'boss' which refers to another EmployeeModelItem.
+
+In such cases, the member is a Proxy for another GitDS::ModelItem. In the repo, 
+a Proxy is a BLOB which contains the path to a GitDS::ModelItem instance.
+
+The GitDS::ModelItemClass#link_property method is used to define a 
+property that is a Proxy for another GitDS::ModelItem. The method takes a 
+property identifier (String or Symbol) and the GitDS::ModelItem class being
+linked to:
+
+	link_property(:name, GitDS::ModelItem)
+
+Note that the Property is a proxy for a *class*. Internally, this is
+implemented as an instance of GitDS::ModelItemClassProxy, which associates
+a named property (i.e. a path to a BLOB in the repo that contains the link
+data) with a GitDS::ModelItem class. This class is used to instantiate the 
+GitDS::ModelItem from the path stored in the property.
+
+===Proxy Item Lists
+
+A ModelItem may have a list of member ModelItems that it does it does not
+actually own. For example, a MeetingModelItem may have the member 'attendees'
+which is a list of EmployeeModelItem objects.
+
+Such a list is a ProxyItemList. 
+
+	def initialize(model, path)
+	  super
+	  @attn = GitDS::ProxyItemList.new(EmployeeModelItem, model, path)
+	end
+
+	def attendees
+	  ensure_valid
+	  @attn.keys
+	end
+
+	def attendee(ident)
+	  ensure_valid
+	  @attn[ident]
+	end
+
+	def add_attendee(obj)
+	  ensure_valid
+	  @attn.add(self, obj)
+	end
+
+	def del_attendee(ident)
+	  ensure_valid
+	  @attn.delete(ident)
+	end
+
+Note: The ProxyItemList is based on ModelItemList, and uses the name of the 
+proxied class as the subdirectory in which the links are stored in the repo.
+
+===Reducing Commits
+
+By default, GitDS writes a commit every time that a GitDS::ModelItem is
+created, modified, or deleted. This can lead to a huge number of commits,
+which inflate the database and have an impact on performance.
+
+To cut down on the number of commits, wrap all work in an GitDS::ExecCmd or a
+GitDS::Transaction:
+
+	model.exec {
+	  ...
+	}
+	model.transaction {
+	  ...
+	}
+
+All work performed in a model is implicitly wrapped in an GitDS::ExecCmd. These
+commands can be nested, with a commit only occurring when the outermost 
+command completes. See and GitDS::ExecCmd and GitDs::Transaction.
+
+In order to perform all work in a branch which gets automatically merged, use
+GitDS::Model#branched_transaction:
+
+	model.branched_transaction('version1.9') {
+	  ...
+	}
+
+See GitDS::Database#branch_and_merge for more details. The TestSuiteModel
+example provides an example of using commands, transactions, and branches.
+
+===Direct Model Access
+
+In addition to the GitDS::ModelItem classes, the contents of a GitDS::Model
+can be accessed directly:
+
+	# does model include the file 'class/id/property'?
+	model.include?('class/id/property')
+
+	# list the contents of the model root
+	model.list_children
+
+	# list the contents of the 'class/id' directory
+	model.list_children('class/id')
+
+	# Set the contents of the BLOB 'class/id/property' to value
+	model.add_item('class/id/property', 'value)
+
+	# As above, but also create an entry on the filesystem for the BLOB.
+	model.add_fs_item('class/id/property', 'value)
+
+	# Get the contents of the BLOB 'class/id/property'
+	model.get_item('class/id/property')
+
+	# Remove 'class/id/property' from the repository.
+	model.delete_item('class/id/property')
+
+Finally, the GitDS::Database instance for the model can be accessed through
+GitDS::Model#db.
+
+=== Model-level Classes
+
+* GitDS::Model
+* GitDS::ModelItem
+* GitDS::RootItem
+* GitDS::FsModelItem
+* GitDS::PropertyDefinition
+* GitDS::ModelItemList
+* GitDS::ModelItemClassProxy
+* GitDS::ProxyProperty
+* GitDS::ProxyItemList
+
+
+==Database Access
+
+The GitDS::Database class is a subclass of GitDS::Repo; all of the methods
+of GitDS::Repo are made available.
+
+In the GitDS API, GitDS::Database is considered to be a database connection.
+A GitDS::Database instance has a single Staging Index that is used by all of
+its callers. For this reason, it is not recommended that a single 
+GitDS::Database instance be used across multiple threads.
+
+===Actor
+
+The author associated with commits to the Git repo. See Grit::Actor.
+
+	# Set the Database actor to Grit::Actor.new(name, email)
+	db.set_author(name, email)
+
+	actor = db.actor
+	db.actor=(Grit::Actor.new(name, email))
+
+===Connecting to a Database
+
+To open a GitDS::Database, use the connect() class method. The 'path'
+argument is a path to the root of the Git repository, and 'autocreate'
+will cause a Git repository to be created if it is set (and if the repository
+does not already exist). Note that 'autocreate' is true by default.
+
+	db = GitDS::Database.connect('my_stuff.db')
+
+To connect to a GitDS::Database as a specific user (instead of using the default
+values in .git/config), use the connect_as() class method:
+
+	db = GitDS::Database.connect_as('test.db', 'hank', 'hk@users.net')
+
+Closing the database will set the 'stale' flag, and cause most subsequent
+database operations to fail.
+
+	db.close
+
+===Executing DB Operations
+
+Series of database operations can be enclosed in a block sent to 
+GitDS::Database#exec. This creates a GitDS::ExecCmd object, which performs
+a commit after the block has been executed. GitDS::ExecCmd is therefore a
+useful way to group a block of work into a single commit. Note that the
+GitDS::Database connection and its Stage Index are accessible inside the
+block via the database and index methods.
+
+	db.exec {
+	  database.list('files').each do |name|
+	    ...
+	  end
+	}
+
+	db.exec {
+	  # override the default commit author and message
+	  author 'Guy', 'guy@people.org'
+	  message 'Added one file'
+
+	  ...
+	  index.add('files/1', '111111')
+	}
+
+Note that the block is executed via instance_eval, so every method of the
+GitDS::ExecCmd object is available to the block. The use of instance_eval can
+have unexpected side effects if GitDS#exec is called from within a method of
+a class instance: the instance methods and members for the calling class
+are no longer accessible, and must declared in the body of the method calling
+the exec.
+
+	class Stuff 
+	  attr_accessor :path
+
+	  def wrong_way(val)
+	    db.exec { database.add(path, val) }
+	  end
+
+	  def right_way(val)
+	    path = self.path
+	    db.exec { database.add(path, val) }
+	  end
+	end
+
+Database commands can be nested. When nested, a commit is only performed 
+when the outermost command has been executed.
+
+	db.exec {
+	  ...
+	  db.exec {
+	    ...
+	    # no commit happens here
+	  }
+	  ...
+	  # commit happens here
+	}
+
+Note that GitDS::ExecCmd uses GitDS::Database#staging to determine nesting.
+When GitDS::Database#exec is called, a Stage Index is created in the database
+if none exists. As long as a Stage Index exists, a GitDS::ExecCmd object will
+assume it is nested, and therefore will not perform an index.build or a
+commit after the code block has executed.
+
+===Transactions
+
+A GitDS::Transaction is a GitDS::ExecCmd object that ensures the block 
+completes execution before a commit is performed. If the block executes without
+raising an exception, a commit is performed; otherwise, all changes are
+discarded.
+
+	db.transaction {
+	  index.add('files/1', '111111')
+
+	  # override default commit author and message
+	  author 'A Developer', 'dev@example.com'
+	  message '[ADEV] Fixed bug in wossname'
+	}
+
+A GitDS::Transaction can be aborted with the rollback method, which raises
+a GitDS::TransactionRollback exception. This will cause the transaction, and
+all enclosing transactions, to be aborted.
+
+	# rollback the transaction
+	db.transaction {
+	  ...
+	  rollback if not obj.some_complex_operation(data)
+	  ...
+	}
+
+By default, all exceptions are caught by the GitDS::Transaction. This can make
+debugging difficult, as application errors will not be detected by the calling
+code. In order to prevent a GitDS::Transaction from discarding exceptions,
+invoke the GitDS::Transaction#propagate method in the body of the code block:
+
+	# re-raise all non-rollback exceptions
+	db.transaction {
+	  propagate
+	  ...
+	}
+
+As with GitDS::Database#exec, invocations of GitDS::Database#transaction can
+be nested, with commits only being performed in the outermost transaction.
+
+	db.transaction {
+	  ...
+	  db.transaction { 
+	    ... 
+	    # no commit is performed
+	  }
+	  ...
+	  # commit is performed
+	}
+
+Both GitDS::Transaction and GitDS::ExecCmd use the Stage Index to detect 
+nesting; therefore, invoking GitDS::Database#transaction from within
+GitDS::Database#exec and invoking GitDS::Database#exec from within
+GitDS::Database#transaction are considered "nesting".
+
+===Managing data
+
+Objects in a GitDS::Database can be modified directly using GitDS::Database#add
+and GitDS::Database#delete. These use GitDS::Database#exec in order to suppress
+a commit if a Stage Index already exists.
+
+	# Set the contents of the BLOB 'things/mine' to 'abcdef'
+	db.add('things/mine',  'abcdef')
+
+	# Get the contents of the BLOB 'things/mine'
+	str = db.delete('things/mine')
+
+	# Get the Grit::Tree object for 'stuff/' in 'master'
+	t = db.tree('master', ['stuff/'])
+
+===Branch-and-merge
+
+GitDS::Database supports branching of code blocks via
+GitDS::Database#branch_and_merge, which takes a branch tag and an author as
+arguments. If a tag is not specified, one will be generated from 
+GitDS::Repo#last_branch_tag. 
+
+	db.branch_and_merge('0.1.0-pre-alpha') {
+	  ...
+	}
+
+	db.branch_and_merge('0.1.1', Grit::Actor.new('A Coder')) {
+	  ...
+	}
+
+This will create a new branch with the given tag using 
+GitDS::Database#create_branch, perform the code block using 
+GitDS::Database#transaction, then switch to the default branch ('master') and 
+merge the created branch with GitDS::Database#merge_branch. Note that the
+Stage Index is saved before the branch is created and restored after it is
+merged.
+
+===Tagging the latest commit
+
+The latest commit for the GitDS::Database can be tagged using the 
+GitDS::Database#mark :
+
+	# Set tag for latest commit
+	db.mark('v.0.0.9-alpha')
+
+This will tag latest commit as 'v_0.0.9-alpha'.
+
+===Database-level Classes
+
+* GitDS::Database
+* GitDS::ExecCmd
+* GitDS::Transaction
+
+==Repository Access
+
+The lowest level of access provided by GitDS is the Repository-level. Any
+lower than this and you're using Grit objects or Git utilities.
+
+===Accessing the Index
+
+A GitDS::Index for the repository can be created using GitDS::Repo#index_new:
+
+	idx = db.index_new
+	...
+	idx.commit('stuff done')
+
+Note that this is a Grit::Index with some helper methods added. Se below for
+details on using a proper Staging Index.
+
+===Staging
+
+The GitDS::Repo object provides a Git-style Staging Index in order to 
+emulate the Git command-line utilities. This index is cached and used
+by all methods that query or modify the repository. See GitDS::StageIndex.
+
+	# get Staging Index, creating one if necessary
+	idx = db.staging
+
+	# set Staging Index to existing GitDS::StageIndex object
+	idx = GitDS::StageIndex.new(db)
+	db.staging = idx
+
+	# return true if a Staging Index exists
+	db.staging?
+
+	# delete the staging index
+	db.unstage
+	# alternative:
+	db.staging = nil
+	
+	# perform work using the staging index
+	db.stage { |idx|
+	  ...
+	}
+
+	# perform work using the staging index and commit when done
+	db.stage_and_commit('work done') { |idx|
+	  ...
+	}
+
+The Staging Index is used by GitDS::ExecCmd and GitDS::Transaction to 
+determine if they are nested. If a Staging Index exists when entering a
+command or a transaction, no commit is performed then the command or
+transaction exits.
+
+===Managing data
+
+The contents of the repository can be managed directly using low-level
+methods:
+
+	# does repo include the file 'stuff/thing'?
+	db.include? 'stuff/thing'
+
+	# Set the contents of the BLOB 'stuff/thing' to '1234'
+	db.add('stuff/thing', '1234')
+
+	# Get the contents of the BLOB ''stuff/thing''
+	str = db.object_data('stuff/thing')
+
+	# Remove 'stuff/thing' from the repository.
+	db.delete('stuff/thing')
+
+	# Get the Grit::Tree object for 'stuff/' in 'master'
+	t = db.tree('master', ['stuff/'])
+
+	# Return the raw (git cat-file) contents of 'stuff/', recursing subtrees
+	str = db.raw_tree('stuff', true)
+
+	# Return a Hash with the contents of 'stuff'. Each key is a filename,
+	# each value is a Grit::Tree or a Grit::Blob.
+	h = db.list('stuff')
+
+	# Return a Hash of the subtrees (Grit::Tree values) in 'stuff'
+	db.list_trees(path)
+
+	# Return a Hash of the files (Grit::Blob values) in 'stuff'
+	db.list_blobs(path)
+
+Where applicable, these wrap the underlying Grit::Repo methods.
+
+===Branch and Merge
+
+A Git branch can be created by specifying a tag name and the SHA of the commit
+preceding the branch. By default, the latest commit in 'master' is used. If
+a tag is not specified, one will be generated from GitDS::Repo#last_branch_tag. 
+Note that the final (clean) tag name is returned.
+
+	cmt = self.commits.first
+	name = db.create_branch('1.0.rc-4', cmt.id)
+
+To switch to a branch, invoke GitDS::Repo#set_branch with the tag name:
+
+	# 'master'
+	puts db.current_branch
+	db.set_branch(name)
+	# '1.0.rc-4'
+	puts db.current_branch
+
+A branch is merged to the default branch ('master') using branch_merge:
+
+	db.merge_branch(name, actor)
+
+===Tags
+
+Any object can be tagged by invoking GitDS::Repo#tag_object on its SHA:
+
+	db.tag_object('Current State', self.commits.first.id)
+
+===Git access
+
+The path of the top-level directory in the Git repository for the GitDS::Repo
+can be obtained through GitDS::Repo#top_level.
+
+Commands can be run in the underlying Git repository:
+
+	# Execute block in top-level directory of Git repo
+	db.exec_in_git_dir(&block)
+
+	# Another way to get db.top_level
+	dir = db.exec_in_git_dir { `git rev-parse --show-toplevel` }
+
+	# Create array of paths in repo
+	files = db.exec_in_git_dir { `git ls-files` }.split("\n")
+
+	# Execute 'command' in top-level directory of Git repo as user
+	db.exec_git_cmd(command, Grit::Actor.new(name, email))
+
+	# Commit all changed files as user 'A Developer'
+	db.exec_git_cmd("git commit -a 'Done.'", 
+			Grit::Actor.new('A Developer', 'a@developer.net'))
+
+	# Another way to create array of paths in repo
+	files = db.exec_git_cmd('git ls-files').split("\n")
+
+===Repository-level Classes
+
+* GitDS::Repo
+* GitDS::RepoConfig
+* GitDS::Index
+* GitDS::StageIndex
+
+==Support for Git features
+
+* Branch : Supported (see GitDS::Database#branch_and_merge)
+* Tag    : Supported (see GitDS::Database#mark)
+* Merge  : Supported (see GitDS::Database#branch_and_merge).
+* Remote : Unsupported; use command-line tools.
+* Revert : Unsupported; use command-line tools.
+
+==Rationale
+
+The module is intended to manage the mundane data access for a git object
+database by providing standard database CRUD operations. 
+
+The notion of a Database and a Data Model were introduced to hide the 
+complexity of using the Git object database as a backend.
+
+More sophisticated manipulation of the repository must be performed using the 
+Git toolchain.
+
+Note: This is not a relational or an ACID-compliant database, and was never
+intended to be.
+
+===Why Git?
+
+* object database is content-addressable
+* version control is free
+* merging of databases is free

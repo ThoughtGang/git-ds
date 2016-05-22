@@ -1,0 +1,36 @@
+=Key-Value datastore
+
+{doc/examples/key_value/model.rb}[link:doc/examples/key_value/model_rb.html]
+
+KeyValueModel
+
+* KeyValueModelItem
+
+==Example
+	:include: doc/examples/key_value/test.rb
+
+=Test Suite backend
+
+{doc/examples/test_suite/model.rb}[link:doc/examples/test_suite/model_rb.html]
+
+TestSuiteModel
+
+* ModuleModelItem
+* TestSuiteModelItem
+* TestModelItem
+* BugModelItem
+
+==Example
+	:include: doc/examples/test_suite/test.rb
+
+=User/Group database
+
+{doc/examples/user_group/model.rb}[link:doc/examples/user_group/model_rb.html]
+
+UserGroupModel
+
+* UserModelItem
+* GroupModelItem
+
+==Example
+	:include: doc/examples/test_suite/test.rb

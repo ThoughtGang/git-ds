@@ -1,0 +1,119 @@
+# Ruby Rakefile for Git-DS module
+# Copyright 2011 Thoughtgang <http://www.thoughtgang.org>
+
+require 'rake/packagetask'
+require 'rake/testtask'
+require 'rdoc/task'
+require 'rubygems/package_task'
+
+MOD_NAME    = 'git-ds'
+MOD_VERSION = '1.0'
+
+# ---------------------------------------------------------------------- 
+# Default build target(s)
+task :default => [:test]
+
+# Ruby modules divided into gems
+MOD_FILES = FileList[
+  'lib/git-ds.rb',
+  'lib/git-ds/*.rb',
+  'lib/git-ds/model/*.rb'
+]
+
+MOD_UNIT_TESTS = FileList[ 
+    'tests/ut_*.rb'
+]
+
+def files_in_path(path)
+  files = [ path + File::SEPARATOR + '*.rb' ]
+  dirs = Dir.new(path).reject{ |f| f.start_with? '.' 
+                     }.collect { |f| path + File::SEPARATOR + f 
+                     }.select { |f| File.directory? f }.each { |d|
+                       files.concat(files_in_path(d)) 
+                     }
+  files
+end
+
+# Examples
+EXAMPLE_FILES = FileList[
+  files_in_path('doc/examples')
+]
+
+# Additional files for rdoc
+RDOC_EXTRA_FILES = FileList[
+    'doc/*.rdoc'
+]
+
+# ---------------------------------------------------------------------- 
+# GEM
+
+spec = Gem::Specification.new do |spec|
+  spec.name = MOD_NAME
+  spec.version = MOD_VERSION
+  spec.platform = Gem::Platform::RUBY
+  spec.summary = 'Git-DS'
+  spec.description = 'A hierarchical datastore based on Git.'
+
+  spec.author = 'TG Community'
+  spec.email = 'community@thoughtgang.org'
+  spec.homepage = 'http://www.thoughtgang.org'
+  spec.rubyforge_project = 'git-db'
+  spec.licenses = [ "POGO", 'BSD' ]
+
+  spec.required_ruby_version = '>= 1.9.3'
+  spec.add_dependency('grit', '>= 2.2.0')
+
+  spec.files = MOD_FILES
+  spec.files << 'README'
+  spec.files << 'LICENSE'
+  spec.files << 'ChangeLog'
+
+  spec.test_files = MOD_UNIT_TESTS
+
+  spec.extra_rdoc_files = RDOC_EXTRA_FILES
+  spec.extra_rdoc_files += EXAMPLE_FILES
+  spec.extra_rdoc_files << 'README.rdoc' 
+end
+
+Gem::PackageTask.new(spec) do |pkg|
+  pkg.need_zip = false
+  pkg.need_tar = true
+end
+
+# ---------------------------------------------------------------------- 
+# RDOC
+
+RDoc::Task.new do |rd|
+  # Page to display in index.html
+  rd.main = 'README.rdoc'
+
+  # Output directory
+  rd.rdoc_dir = 'doc/html'
+
+  # Doc and embedded-doc files for rdoc to process
+  rd.rdoc_files = RDOC_EXTRA_FILES
+  rd.rdoc_files += MOD_FILES
+  rd.rdoc_files += EXAMPLE_FILES
+  rd.rdoc_files << 'README.rdoc' 
+end
+
+# ---------------------------------------------------------------------- 
+# TEST
+
+Rake::TestTask.new do |t|
+  t.libs << Dir.pwd
+  t.test_files = MOD_UNIT_TESTS
+  t.verbose = true
+  t.warning = true
+end
+
+# Use this to test selected unit tests. Only useful when writing new tests.
+Rake::TestTask.new('test-single') do |t|
+  t.libs << Dir.pwd
+  t.test_files = FileList[
+    'tests/ut_database.rb'
+  ]
+  t.verbose = true
+  t.warning = false
+end
+

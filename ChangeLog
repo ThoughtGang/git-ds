@@ -1,0 +1,83 @@
+2016-05-22 :	mkfs <mkfs@thoughtgang.org>
+	*	Moved to Github
+	*	Bumped version number to 1.0
+	*	Changed licensed to POGO
+
+2011-09-21 :	mkfs <mkfs@thoughtgang.org>
+	*	Removed sort() call from ModelItemObject#properties
+	*	Added children() method to ModelItemObject
+
+2011-08-09 :	mkfs <mkfs@thoughtgang.org>
+	*	Added fix for "zero-padded file modes" error
+
+2011-08-04 :	mkfs <mkfs@thoughtgang.org>
+	*	Added better error string to InvalidProperty exception
+
+2011-08-03 :	mkfs <mkfs@thoughtgang.org>
+	*	Repo#path_to_object now searches Index if appropriate
+	*	Index now has include? and path_to_object methods
+
+2011-08-01 :	mkfs <mkfs@thoughtgang.org>
+	*	Added Index#force_sync method
+	*	StageMemIndex#sync is now a no-op
+
+2011-07-30 :	mkfs <mkfs@thoughtgang.org>
+	*	Model#batch is now a wrapper for Database#batch
+	*	Transaction#perform now executes in batch mode
+
+2011-07-26 :	mkfs <mkfs@thoughtgang.org>
+	*	Added batch method as an optimization
+
+2011-07-08 :	mkfs <mkfs@thoughtgang.org>
+	*	Added methods to optimize adding model items
+
+2011-07-07 :	mkfs <mkfs@thoughtgang.org>
+	*	Fixed bug in handling of nested transactions
+
+2011-06-17 :	mkfs <mkfs@thoughtgang.org>
+	*	Fixed handling of index.build in Exec
+
+2011-06-15 :	mkfs <mkfs@thoughtgang.org>
+	*	Added clear_cache method to ModelItem
+
+2011-06-14 :	mkfs <mkfs@thoughtgang.org>
+	*	Fixed ModelItem#array_property and ts_property methods
+
+2011-06-13 :	mkfs <mkfs@thoughtgang.org>
+	*	Added publish/subscribe support to Database object
+	*	Bumped gem version to 0.9.7
+
+2011-06-06 :	mkfs <mkfs@thoughtgang.org>
+	*	Added runtime checks (and exceptions) for NULL bytes in path
+
+2011-05-20 :	mkfs <mkfs@thoughtgang.org>
+	*	Bumped gem version to 0.9.6
+	*	Fixed default-commmit bug in Database and Repo classes.
+
+2011-04-19 :	mkfs <mkfs@thoughtgang.org>
+	*	Added proxy_property alias for ModelItem.link_property
+
+2011-04-18 :	mkfs <mkfs@thoughtgang.org>
+	*	Bumped gem version to 0.9.5
+	*	Added ModelItem.exist? class member
+	*	Added convenience property  method aliases to ModelItem
+	*	Changed default branch from 'master' to Repo#current_branch
+	*	Added a BinaryPropertyDefinition class
+	*	Added a binary_property class method to ModelItem
+
+2011-04-15 :	mkfs <mkfs@thoughtgang.org>
+	*	Removed newline from Repo.top_level
+	*	Added exception handling to exec_in_git 
+	*	Added Database#valid? method
+	*	Forced an unstage() call in Repo#stage_and_commit
+
+2011-04-14 :	mkfs <mkfs@thoughtgang.org>
+	*	Fixed broken dependency on Grit.
+
+2011-04-11 :	mkfs <mkfs@thoughtgang.org>
+	*	Bumped gem version to 0.9.4
+	*	Added LICENSE to gemspec.
+	*	Added Changelog to gemspec.
+	*	Removed initialize() method from Model and ModelItem modules
+	*	Fixed bug in Repo.top_level class method
+	*	Added code to account for broken Grit init
